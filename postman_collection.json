@@ -1,0 +1,268 @@
+{
+  "info": {
+    "name": "AI Gateway",
+    "description": "Multi-tenant AI Gateway API — all endpoints with example requests",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "ai-gateway-v1"
+  },
+  "variable": [
+    { "key": "base_url",   "value": "http://localhost:8080" },
+    { "key": "api_key",    "value": "your-gateway-api-key" },
+    { "key": "admin_key",  "value": "your-admin-api-key" },
+    { "key": "tenant_id",  "value": "12345" }
+  ],
+  "item": [
+    {
+      "name": "Health & Ops",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/health",
+            "description": "Returns 200 when healthy, 503 when degraded."
+          }
+        },
+        {
+          "name": "Prometheus Metrics",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/metrics",
+            "description": "Raw Prometheus text format metrics."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        {
+          "name": "Chat Completion — Basic",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [
+              { "key": "X-API-Key",    "value": "{{api_key}}" },
+              { "key": "X-Tenant-ID",  "value": "{{tenant_id}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"deepseek-chat\",\n  \"messages\": [\n    {\"role\": \"user\", \"content\": \"Hello, what can you help me with?\"}\n  ],\n  \"temperature\": 0.7\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has choices', () => pm.response.json().choices.length > 0);",
+                  "pm.test('Has x-tenant-usage', () => pm.response.json()['x-tenant-usage'] !== undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Chat Completion — Sales Analytics",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [
+              { "key": "X-API-Key",    "value": "{{api_key}}" },
+              { "key": "X-Tenant-ID",  "value": "{{tenant_id}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"deepseek-chat\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"You are a sales analytics assistant for an e-commerce store.\"},\n    {\"role\": \"user\", \"content\": \"What were my top 5 products this month?\"}\n  ],\n  \"temperature\": 0.7,\n  \"max_tokens\": 2000\n}"
+            }
+          }
+        },
+        {
+          "name": "Chat Completion — Missing API Key (expect 401)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [
+              { "key": "X-Tenant-ID",  "value": "{{tenant_id}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"messages\": [{\"role\": \"user\", \"content\": \"Hi\"}]}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Chat Completion — Empty Messages (expect 400)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/chat/completions",
+            "header": [
+              { "key": "X-API-Key",    "value": "{{api_key}}" },
+              { "key": "X-Tenant-ID",  "value": "{{tenant_id}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"messages\": []}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('Status 400', () => pm.response.to.have.status(400));"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tenant (Read)",
+      "item": [
+        {
+          "name": "Get Usage",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/tenant/{{tenant_id}}/usage",
+            "header": [{ "key": "X-API-Key", "value": "{{api_key}}" }]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('Has period', () => pm.expect(b.period).to.match(/^\\d{4}-\\d{2}$/));",
+                  "pm.test('Has daily_breakdown', () => Array.isArray(b.daily_breakdown));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Quota",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/v1/tenant/{{tenant_id}}/quota",
+            "header": [{ "key": "X-API-Key", "value": "{{api_key}}" }]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json();",
+                  "pm.test('Has queries', () => pm.expect(b.queries).to.have.property('limit'));",
+                  "pm.test('Has tokens', () => pm.expect(b.tokens).to.have.property('limit'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Update Quota",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/v1/tenant/{{tenant_id}}/quota",
+            "header": [
+              { "key": "X-API-Key",    "value": "{{admin_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"monthly_query_limit\": 20000,\n  \"monthly_token_limit\": 5000000\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Markup",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/v1/tenant/{{tenant_id}}/markup",
+            "header": [
+              { "key": "X-API-Key",    "value": "{{admin_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"markup_multiplier\": 8.0}"
+            }
+          }
+        },
+        {
+          "name": "Disable Tenant",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/v1/tenant/{{tenant_id}}/status",
+            "header": [
+              { "key": "X-API-Key",    "value": "{{admin_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"is_enabled\": false}"
+            }
+          }
+        },
+        {
+          "name": "Enable Tenant",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/v1/tenant/{{tenant_id}}/status",
+            "header": [
+              { "key": "X-API-Key",    "value": "{{admin_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"is_enabled\": true}"
+            }
+          }
+        },
+        {
+          "name": "Update Quota — Missing Admin Key (expect 401)",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/v1/tenant/{{tenant_id}}/quota",
+            "header": [
+              { "key": "X-API-Key",    "value": "{{api_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"monthly_query_limit\": 1000, \"monthly_token_limit\": 100000}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('Status 401', () => pm.response.to.have.status(401));"]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

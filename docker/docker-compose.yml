@@ -1,0 +1,98 @@
+version: '3.9'
+
+services:
+  # ── AI Gateway ──────────────────────────────────────────────
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - NODE_ENV=production
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - GATEWAY_API_KEY=${GATEWAY_API_KEY}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
+      - DATABASE_URL=postgresql://gateway:${DB_PASSWORD:-password}@postgres:5432/gateway
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - DEFAULT_MONTHLY_QUERY_LIMIT=${DEFAULT_MONTHLY_QUERY_LIMIT:-5000}
+      - DEFAULT_MONTHLY_TOKEN_LIMIT=${DEFAULT_MONTHLY_TOKEN_LIMIT:-1000000}
+      - DEFAULT_MARKUP_MULTIPLIER=${DEFAULT_MARKUP_MULTIPLIER:-10.0}
+      - ENABLE_METRICS=true
+      - ENABLE_CACHE=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ── PostgreSQL ───────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=gateway
+      - POSTGRES_USER=gateway
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway -d gateway"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    command: >
+      postgres
+        -c max_connections=100
+        -c shared_buffers=128MB
+        -c wal_level=replica
+        -c archive_mode=on
+        -c archive_command='test ! -f /mnt/archive/%f && cp %p /mnt/archive/%f'
+
+  # ── Redis ────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    # AOF + RDB persistence so quota counters survive restarts
+    command: >
+      redis-server
+        --appendonly yes
+        --appendfsync everysec
+        --save 900 1
+        --save 300 10
+        --save 60 10000
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

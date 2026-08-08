@@ -1,0 +1,486 @@
+openapi: 3.1.0
+info:
+  title: AI Gateway
+  description: |
+    Multi-tenant AI Gateway providing white-label LLM access with per-tenant billing,
+    quota enforcement, rate limiting, and response caching.
+
+    **Authentication**
+    - Service requests (CRM → Gateway): `X-API-Key` header with the `GATEWAY_API_KEY` value
+    - Admin requests (quota management): `X-API-Key` header with the `ADMIN_API_KEY` value
+
+    **Tenant Identification**
+    All chat requests must include `X-Tenant-ID` header with the CRM tenant's numeric ID.
+  version: 1.0.0
+  contact:
+    name: Gateway Support
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://ai.yourdomain.com
+    description: Production
+
+security:
+  - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+        content:
+          type: string
+
+    ChatCompletionRequest:
+      type: object
+      required: [messages]
+      properties:
+        model:
+          type: string
+          default: deepseek-chat
+          example: deepseek-chat
+        messages:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          default: 0.7
+        max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 32768
+        stream:
+          type: boolean
+          enum: [false]
+          description: Streaming not yet supported — must be false
+        top_p:
+          type: number
+          minimum: 0
+          maximum: 1
+
+    TokenUsage:
+      type: object
+      properties:
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+
+    TenantUsageSummary:
+      type: object
+      properties:
+        current_month_queries:
+          type: integer
+        current_month_tokens:
+          type: integer
+        monthly_quota_queries:
+          type: integer
+        monthly_quota_tokens:
+          type: integer
+
+    ChatCompletionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          example: chatcmpl-abc123
+        object:
+          type: string
+          example: chat.completion
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              message:
+                $ref: '#/components/schemas/ChatMessage'
+              finish_reason:
+                type: string
+        usage:
+          $ref: '#/components/schemas/TokenUsage'
+        x-tenant-usage:
+          $ref: '#/components/schemas/TenantUsageSummary'
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: integer
+        tenant_id:
+          type: integer
+        is_enabled:
+          type: boolean
+        subscription_tier:
+          type: string
+        monthly_query_limit:
+          type: integer
+        monthly_token_limit:
+          type: integer
+        markup_multiplier:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    QuotaStatus:
+      type: object
+      properties:
+        tenant_id:
+          type: integer
+        subscription_tier:
+          type: string
+        queries:
+          type: object
+          properties:
+            used:
+              type: integer
+            limit:
+              type: integer
+            remaining:
+              type: integer
+            exceeded:
+              type: boolean
+        tokens:
+          type: object
+          properties:
+            used:
+              type: integer
+            limit:
+              type: integer
+            remaining:
+              type: integer
+            exceeded:
+              type: boolean
+
+    UsageSummary:
+      type: object
+      properties:
+        tenant_id:
+          type: integer
+        period:
+          type: string
+          example: "2025-03"
+        total_queries:
+          type: integer
+        total_tokens:
+          type: integer
+        total_cost_usd:
+          type: number
+        daily_breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              day:
+                type: string
+                example: "2025-03-15"
+              queries:
+                type: integer
+              tokens:
+                type: integer
+              cost_usd:
+                type: number
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        checks:
+          type: object
+          properties:
+            postgres:
+              type: string
+              enum: [ok, error]
+            redis:
+              type: string
+              enum: [ok, error]
+        uptime:
+          type: number
+        timestamp:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        retry_after:
+          type: integer
+
+paths:
+  /v1/chat/completions:
+    post:
+      summary: Chat completion
+      description: |
+        Submit a chat completion request. Identical to the OpenAI/DeepSeek API format.
+
+        **Headers required:**
+        - `X-API-Key`: Gateway API key
+        - `X-Tenant-ID`: CRM tenant numeric ID
+        - `X-Request-ID` (optional): Client-supplied idempotency key
+
+        **Flow:** Auth → Tenant resolution → Rate limit → Quota check → Cache → DeepSeek → Log
+      tags: [Chat]
+      parameters:
+        - in: header
+          name: X-Tenant-ID
+          required: true
+          schema:
+            type: integer
+          example: 12345
+        - in: header
+          name: X-Request-ID
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+            example:
+              model: deepseek-chat
+              messages:
+                - role: system
+                  content: You are a sales analytics assistant.
+                - role: user
+                  content: What were my top 5 products this month?
+              temperature: 0.7
+              max_tokens: 2000
+      responses:
+        '200':
+          description: Successful completion
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '402':
+          description: Monthly quota exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Tenant is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until the rate limit resets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: AI service error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Gateway timeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/tenant/{tenantId}/usage:
+    get:
+      summary: Get tenant usage for current month
+      tags: [Tenant]
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Usage summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSummary'
+        '404':
+          description: Tenant not found
+
+  /v1/tenant/{tenantId}/quota:
+    get:
+      summary: Get tenant quota limits and current usage
+      tags: [Tenant]
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Quota status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaStatus'
+    put:
+      summary: Update tenant quota limits (admin)
+      description: Requires ADMIN_API_KEY.
+      tags: [Admin]
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [monthly_query_limit, monthly_token_limit]
+              properties:
+                monthly_query_limit:
+                  type: integer
+                  minimum: 1
+                monthly_token_limit:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Updated tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+
+  /v1/tenant/{tenantId}/markup:
+    put:
+      summary: Update tenant markup multiplier (admin)
+      tags: [Admin]
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [markup_multiplier]
+              properties:
+                markup_multiplier:
+                  type: number
+                  minimum: 0.01
+      responses:
+        '200':
+          description: Updated tenant
+
+  /v1/tenant/{tenantId}/status:
+    put:
+      summary: Enable or disable a tenant (admin)
+      tags: [Admin]
+      parameters:
+        - in: path
+          name: tenantId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [is_enabled]
+              properties:
+                is_enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated tenant
+
+  /v1/health:
+    get:
+      summary: Health check
+      description: Returns 200 when all dependencies are healthy, 503 when degraded.
+      tags: [Operations]
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Degraded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /v1/metrics:
+    get:
+      summary: Prometheus metrics
+      tags: [Operations]
+      security: []
+      responses:
+        '200':
+          description: Prometheus text format
+          content:
+            text/plain:
+              schema:
+                type: string

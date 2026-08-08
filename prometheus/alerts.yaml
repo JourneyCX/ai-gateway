@@ -1,0 +1,114 @@
+groups:
+  - name: ai_gateway_critical
+    interval: 30s
+    rules:
+      # ── DeepSeek API health ───────────────────────────────
+      - alert: DeepSeekHighErrorRate
+        expr: |
+          (
+            rate(ai_gateway_errors_total{error_type=~"deepseek_error|timeout"}[5m])
+            /
+            rate(ai_gateway_requests_total[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DeepSeek API error rate > 5%"
+          description: "{{ $value | humanizePercentage }} of requests are failing with DeepSeek errors over the last 5 minutes."
+
+      # ── Redis connectivity ────────────────────────────────
+      - alert: RedisConnectionFailed
+        expr: up{job="ai-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AI Gateway is down"
+          description: "The AI Gateway process has been unreachable for 1 minute."
+
+      - alert: GatewayHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(ai_gateway_request_duration_seconds_bucket[10m])
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway P95 latency > 5 seconds"
+          description: "P95 request duration is {{ $value | humanizeDuration }} over the last 10 minutes."
+
+  - name: ai_gateway_quota
+    interval: 60s
+    rules:
+      # ── Tenant approaching quota (90%) ────────────────────
+      - alert: TenantQueryQuotaWarning
+        expr: |
+          (
+            ai_gateway_quota_remaining{quota_type="queries"}
+            /
+            on(tenant_id) group_left()
+            (ai_gateway_quota_remaining{quota_type="queries"} + 1)
+          ) < 0.10
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }} has < 10% query quota remaining"
+          description: "{{ $value | humanizePercentage }} of monthly query quota remains for tenant {{ $labels.tenant_id }}."
+
+      - alert: TenantTokenQuotaWarning
+        expr: |
+          ai_gateway_quota_remaining{quota_type="tokens"} < 100000
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }} has < 100K tokens remaining"
+          description: "Only {{ $value }} tokens remain for tenant {{ $labels.tenant_id }} this month."
+
+  - name: ai_gateway_slos
+    interval: 60s
+    rules:
+      # ── Error budget burn ─────────────────────────────────
+      - alert: GatewayErrorBudgetBurning
+        expr: |
+          (
+            rate(ai_gateway_requests_total{status=~"5.."}[1h])
+            /
+            rate(ai_gateway_requests_total[1h])
+          ) > 0.001
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway error rate burning error budget (target: 99.9% availability)"
+          description: "Current error rate: {{ $value | humanizePercentage }}"
+
+      # ── Cache hit rate drop ───────────────────────────────
+      - alert: LowCacheHitRate
+        expr: |
+          (
+            rate(ai_gateway_requests_total{status="200"}[1h])
+            - rate(ai_gateway_deepseek_duration_seconds_count[1h])
+          )
+          /
+          rate(ai_gateway_requests_total{status="200"}[1h]) < 0.1
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Cache hit rate below 10%"
+          description: "Response cache may be misconfigured or TTL too short."
+
+      # ── Unusual token volume (potential abuse) ────────────
+      - alert: TenantHighTokenUsage
+        expr: |
+          rate(ai_gateway_tokens_total[5m]) > 50000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.tenant_id }} consuming tokens at high rate"
+          description: "{{ $value | humanize }} tokens/second for the last 5 minutes."

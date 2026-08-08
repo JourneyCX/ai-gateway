@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en" x-data="app()" x-init="init()">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Gateway — Admin</title>
+
+  <!-- Tailwind CSS Play CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#f0f9ff', 100:'#e0f2fe', 500:'#0ea5e9', 600:'#0284c7', 700:'#0369a1', 900:'#0c4a6e' }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
+  <style>
+    [x-cloak] { display: none !important; }
+    .sidebar-link { @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors; }
+    .sidebar-link.active { @apply bg-brand-600 text-white; }
+    .sidebar-link:not(.active) { @apply text-slate-300 hover:bg-slate-700 hover:text-white; }
+    .stat-card { @apply bg-white rounded-xl border border-slate-200 p-5 shadow-sm; }
+    .badge-ok  { @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700; }
+    .badge-err { @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700; }
+    .badge-warn{ @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700; }
+    .dot       { @apply w-1.5 h-1.5 rounded-full; }
+    .input     { @apply block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500; }
+    .btn-primary   { @apply inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 disabled:opacity-50; }
+    .btn-secondary { @apply inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50; }
+    .btn-danger    { @apply inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700; }
+    .progress-bar  { @apply h-1.5 rounded-full bg-slate-200; }
+    .progress-fill { @apply h-1.5 rounded-full transition-all duration-300; }
+    .quota-ok   { background: #10b981; }
+    .quota-warn { background: #f59e0b; }
+    .quota-over { background: #ef4444; }
+    .table-row  { @apply border-b border-slate-100 hover:bg-slate-50 transition-colors; }
+    .th         { @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500; }
+    .td         { @apply px-4 py-3 text-sm text-slate-700; }
+    .modal-overlay { @apply fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4; }
+    .modal-box     { @apply bg-white rounded-2xl shadow-2xl w-full max-w-lg; }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  </style>
+</head>
+
+<body class="bg-slate-100 text-slate-900 antialiased" x-cloak>
+
+<!-- ═══════════════════════════════════════════════════════════
+     LOGIN SCREEN
+════════════════════════════════════════════════════════════ -->
+<div x-show="!authenticated" class="min-h-screen flex items-center justify-center">
+  <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md p-8">
+    <!-- Logo -->
+    <div class="flex items-center gap-3 mb-8">
+      <div class="w-10 h-10 rounded-xl bg-brand-600 flex items-center justify-center">
+        <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold text-slate-900">AI Gateway</h1>
+        <p class="text-xs text-slate-500">Admin Console</p>
+      </div>
+    </div>
+
+    <h2 class="text-xl font-semibold mb-1">Sign in</h2>
+    <p class="text-sm text-slate-500 mb-6">Enter your admin API key to continue</p>
+
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1.5">Gateway URL</label>
+        <input x-model="loginForm.baseUrl" type="text" class="input" placeholder="http://localhost:8080" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1.5">Admin API Key</label>
+        <input x-model="loginForm.apiKey" type="password" class="input" placeholder="your-admin-api-key"
+               @keydown.enter="login()" />
+      </div>
+      <div x-show="loginError" class="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg" x-text="loginError"></div>
+      <button @click="login()" :disabled="loginLoading" class="btn-primary w-full justify-center py-2.5">
+        <svg x-show="loginLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+        </svg>
+        <span x-text="loginLoading ? 'Verifying...' : 'Sign in'"></span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     MAIN LAYOUT
+════════════════════════════════════════════════════════════ -->
+<div x-show="authenticated" class="flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside class="w-60 bg-slate-800 flex flex-col flex-shrink-0">
+    <!-- Brand -->
+    <div class="flex items-center gap-3 px-4 py-5 border-b border-slate-700">
+      <div class="w-8 h-8 rounded-lg bg-brand-600 flex items-center justify-center flex-shrink-0">
+        <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <div class="text-sm font-bold text-white truncate">AI Gateway</div>
+        <div class="text-xs text-slate-400 truncate" x-text="baseUrl"></div>
+      </div>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <button @click="view='dashboard'" :class="view==='dashboard' ? 'active' : ''" class="sidebar-link w-full">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 7h18M3 12h18M3 17h18"/>
+          <rect x="3" y="3" width="7" height="7" rx="1" stroke-width="1.5"/>
+          <rect x="14" y="3" width="7" height="7" rx="1" stroke-width="1.5"/>
+          <rect x="14" y="14" width="7" height="7" rx="1" stroke-width="1.5"/>
+          <rect x="3" y="14" width="7" height="7" rx="1" stroke-width="1.5"/>
+        </svg>
+        Dashboard
+      </button>
+      <button @click="view='tenants'; loadTenants()" :class="view==='tenants' ? 'active' : ''" class="sidebar-link w-full">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
+        </svg>
+        Tenants
+      </button>
+      <button @click="view='analytics'; loadAnalytics()" :class="view==='analytics' ? 'active' : ''" class="sidebar-link w-full">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+        </svg>
+        Analytics
+      </button>
+      <button @click="view='health'; loadHealthDetail()" :class="view==='health' ? 'active' : ''" class="sidebar-link w-full">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        Health
+      </button>
+    </nav>
+
+    <!-- Footer -->
+    <div class="px-3 py-3 border-t border-slate-700">
+      <button @click="signOut()" class="sidebar-link w-full text-slate-400">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+        </svg>
+        Sign out
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto">
+
+    <!-- ── DASHBOARD ──────────────────────────────────────── -->
+    <div x-show="view === 'dashboard'" class="p-6 space-y-6">
+      <!-- Page header -->
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Dashboard</h2>
+          <p class="text-sm text-slate-500">Today's snapshot &amp; system health</p>
+        </div>
+        <button @click="loadDashboard()" class="btn-secondary">
+          <svg class="w-4 h-4" :class="statsLoading ? 'animate-spin' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Refresh
+        </button>
+      </div>
+
+      <!-- Stat cards -->
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <!-- Active Tenants -->
+        <div class="stat-card">
+          <div class="flex items-start justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Active Tenants</p>
+              <p class="text-3xl font-bold" x-text="stats.tenants?.active ?? '—'"></p>
+              <p class="text-xs text-slate-400 mt-1" x-text="'of ' + (stats.tenants?.total ?? '—') + ' total'"></p>
+            </div>
+            <div class="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Today Requests -->
+        <div class="stat-card">
+          <div class="flex items-start justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Requests Today</p>
+              <p class="text-3xl font-bold" x-text="fmtNum(stats.today?.requests)"></p>
+              <p class="text-xs text-slate-400 mt-1" x-text="fmtPct(stats.today?.cache_hit_rate) + ' cache hits'"></p>
+            </div>
+            <div class="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Today Tokens -->
+        <div class="stat-card">
+          <div class="flex items-start justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Tokens Today</p>
+              <p class="text-3xl font-bold" x-text="fmtNum(stats.today?.tokens)"></p>
+              <p class="text-xs text-slate-400 mt-1" x-text="fmtNum(stats.today?.avg_response_ms) + 'ms avg latency'"></p>
+            </div>
+            <div class="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Today Revenue -->
+        <div class="stat-card">
+          <div class="flex items-start justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Revenue Today</p>
+              <p class="text-3xl font-bold" x-text="fmtUsd(stats.today?.revenue_usd)"></p>
+              <p class="text-xs text-slate-400 mt-1" x-text="(stats.errors?.server_errors ?? 0) + ' errors today'"></p>
+            </div>
+            <div class="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Health + quick chart row -->
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        <!-- Health status -->
+        <div class="stat-card space-y-4">
+          <h3 class="font-semibold text-sm">System Health</h3>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-slate-600 flex items-center gap-2">
+                <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <ellipse cx="12" cy="12" rx="9" ry="5" /><path d="M3 12c0 2.761 4.03 5 9 5s9-2.239 9-5"/>
+                  <path d="M3 7v10M21 7v10"/>
+                </svg>
+                PostgreSQL
+              </span>
+              <span :class="health.postgres === 'ok' ? 'badge-ok' : 'badge-err'">
+                <span class="dot" :class="health.postgres === 'ok' ? 'bg-emerald-500' : 'bg-red-500'"></span>
+                <span x-text="health.postgres ?? 'unknown'"></span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-slate-600 flex items-center gap-2">
+                <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/>
+                </svg>
+                Redis
+              </span>
+              <span :class="health.redis === 'ok' ? 'badge-ok' : 'badge-err'">
+                <span class="dot" :class="health.redis === 'ok' ? 'bg-emerald-500' : 'bg-red-500'"></span>
+                <span x-text="health.redis ?? 'unknown'"></span>
+              </span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-slate-600 flex items-center gap-2">
+                <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+                Gateway
+              </span>
+              <span class="badge-ok"><span class="dot bg-emerald-500"></span>running</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-sm text-slate-600">Uptime</span>
+              <span class="text-sm font-medium text-slate-700" x-text="fmtUptime(health.uptime)"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 7-day sparkline -->
+        <div class="stat-card xl:col-span-2">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-sm">Requests — last 7 days</h3>
+          </div>
+          <canvas id="sparkChart" height="80"></canvas>
+        </div>
+      </div>
+
+      <!-- Top tenants today -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100">
+          <h3 class="font-semibold text-sm">Top Tenants This Month</h3>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="th">Tenant ID</th>
+                <th class="th">Requests</th>
+                <th class="th">Tokens</th>
+                <th class="th">Revenue</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="t in topTenants" :key="t.tenant_id">
+                <tr class="table-row">
+                  <td class="td font-mono font-medium" x-text="t.tenant_id"></td>
+                  <td class="td" x-text="fmtNum(t.requests)"></td>
+                  <td class="td" x-text="fmtNum(t.tokens)"></td>
+                  <td class="td font-medium text-emerald-700" x-text="fmtUsd(t.revenue)"></td>
+                </tr>
+              </template>
+              <tr x-show="topTenants.length === 0">
+                <td colspan="4" class="td text-center text-slate-400 py-8">No data yet for this month</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TENANTS ─────────────────────────────────────────── -->
+    <div x-show="view === 'tenants'" class="p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Tenants</h2>
+          <p class="text-sm text-slate-500">Manage quotas, billing, and access</p>
+        </div>
+        <div class="flex gap-2">
+          <input x-model="tenantSearch" type="search" placeholder="Search tenant ID…"
+                 class="input w-48" />
+          <button @click="loadTenants()" class="btn-secondary">
+            <svg class="w-4 h-4" :class="tenantsLoading ? 'animate-spin' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="th">Tenant ID</th>
+                <th class="th">Tier</th>
+                <th class="th">Month Usage</th>
+                <th class="th">Query Quota</th>
+                <th class="th">Token Quota</th>
+                <th class="th">Markup</th>
+                <th class="th">Status</th>
+                <th class="th">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="t in filteredTenants" :key="t.tenant_id">
+                <tr class="table-row">
+                  <td class="td font-mono font-semibold" x-text="t.tenant_id"></td>
+                  <td class="td">
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-brand-50 text-brand-700 capitalize" x-text="t.subscription_tier"></span>
+                  </td>
+                  <td class="td">
+                    <div class="text-sm" x-text="fmtNum(t.month_queries) + ' req · ' + fmtUsd(t.month_revenue)"></div>
+                  </td>
+                  <td class="td" style="min-width:140px">
+                    <div class="text-xs text-slate-500 mb-1" x-text="fmtNum(t.month_queries) + ' / ' + fmtNum(t.monthly_query_limit)"></div>
+                    <div class="progress-bar">
+                      <div class="progress-fill"
+                           :class="t.queries_pct >= 0.9 ? 'quota-over' : t.queries_pct >= 0.7 ? 'quota-warn' : 'quota-ok'"
+                           :style="'width:' + Math.min(t.queries_pct * 100, 100) + '%'"></div>
+                    </div>
+                  </td>
+                  <td class="td" style="min-width:140px">
+                    <div class="text-xs text-slate-500 mb-1" x-text="fmtNum(t.month_tokens) + ' / ' + fmtNum(t.monthly_token_limit)"></div>
+                    <div class="progress-bar">
+                      <div class="progress-fill"
+                           :class="t.tokens_pct >= 0.9 ? 'quota-over' : t.tokens_pct >= 0.7 ? 'quota-warn' : 'quota-ok'"
+                           :style="'width:' + Math.min(t.tokens_pct * 100, 100) + '%'"></div>
+                    </div>
+                  </td>
+                  <td class="td font-medium" x-text="t.markup_multiplier + '×'"></td>
+                  <td class="td">
+                    <span :class="t.is_enabled ? 'badge-ok' : 'badge-err'">
+                      <span class="dot" :class="t.is_enabled ? 'bg-emerald-500' : 'bg-red-500'"></span>
+                      <span x-text="t.is_enabled ? 'Active' : 'Disabled'"></span>
+                    </span>
+                  </td>
+                  <td class="td">
+                    <button @click="openEditModal(t)" class="text-brand-600 hover:text-brand-800 text-xs font-medium mr-3">Edit</button>
+                    <button @click="toggleTenant(t)"
+                            :class="t.is_enabled ? 'text-red-600 hover:text-red-800' : 'text-emerald-600 hover:text-emerald-800'"
+                            class="text-xs font-medium"
+                            x-text="t.is_enabled ? 'Disable' : 'Enable'"></button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="filteredTenants.length === 0 && !tenantsLoading">
+                <td colspan="8" class="td text-center text-slate-400 py-10">No tenants found</td>
+              </tr>
+              <tr x-show="tenantsLoading">
+                <td colspan="8" class="td text-center text-slate-400 py-10">Loading…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ANALYTICS ──────────────────────────────────────── -->
+    <div x-show="view === 'analytics'" class="p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Analytics</h2>
+          <p class="text-sm text-slate-500">Usage trends and revenue</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-slate-600">Days:</label>
+          <select x-model="analyticsDays" @change="loadAnalytics()" class="input py-1.5 w-24">
+            <option value="7">7</option>
+            <option value="14">14</option>
+            <option value="30" selected>30</option>
+            <option value="60">60</option>
+            <option value="90">90</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <!-- Requests chart -->
+        <div class="stat-card">
+          <h3 class="font-semibold text-sm mb-4">Daily Requests</h3>
+          <canvas id="requestsChart" height="140"></canvas>
+        </div>
+        <!-- Tokens chart -->
+        <div class="stat-card">
+          <h3 class="font-semibold text-sm mb-4">Daily Tokens</h3>
+          <canvas id="tokensChart" height="140"></canvas>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <!-- Revenue chart -->
+        <div class="stat-card">
+          <h3 class="font-semibold text-sm mb-4">Daily Revenue (USD)</h3>
+          <canvas id="revenueChart" height="140"></canvas>
+        </div>
+        <!-- By-tenant chart -->
+        <div class="stat-card">
+          <h3 class="font-semibold text-sm mb-4">Revenue by Tenant — This Month</h3>
+          <canvas id="tenantRevenueChart" height="140"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HEALTH ──────────────────────────────────────────── -->
+    <div x-show="view === 'health'" class="p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-bold">Health</h2>
+          <p class="text-sm text-slate-500">Service status and recent errors</p>
+        </div>
+        <button @click="loadHealthDetail()" class="btn-secondary">
+          <svg class="w-4 h-4" :class="healthLoading ? 'animate-spin' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Refresh
+        </button>
+      </div>
+
+      <!-- Dependency status -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="stat-card">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+              <svg class="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <ellipse cx="12" cy="7" rx="9" ry="4"/><path d="M3 7v10c0 2.21 4.03 4 9 4s9-1.79 9-4V7"/>
+                <path d="M3 12c0 2.21 4.03 4 9 4s9-1.79 9-4"/>
+              </svg>
+            </div>
+            <div>
+              <div class="text-sm font-semibold">PostgreSQL</div>
+              <div class="text-xs text-slate-500" x-text="healthDetail.postgres?.version ?? 'unknown'"></div>
+            </div>
+          </div>
+          <span :class="healthDetail.postgres?.status === 'ok' ? 'badge-ok' : 'badge-err'">
+            <span class="dot" :class="healthDetail.postgres?.status === 'ok' ? 'bg-emerald-500' : 'bg-red-500'"></span>
+            <span x-text="healthDetail.postgres?.status ?? 'unknown'"></span>
+          </span>
+        </div>
+
+        <div class="stat-card">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/>
+              </svg>
+            </div>
+            <div>
+              <div class="text-sm font-semibold">Redis</div>
+              <div class="text-xs text-slate-500" x-text="healthDetail.redis?.version ? 'v' + healthDetail.redis.version : 'unknown'"></div>
+            </div>
+          </div>
+          <span :class="healthDetail.redis?.status === 'ok' ? 'badge-ok' : 'badge-err'">
+            <span class="dot" :class="healthDetail.redis?.status === 'ok' ? 'bg-emerald-500' : 'bg-red-500'"></span>
+            <span x-text="healthDetail.redis?.status ?? 'unknown'"></span>
+          </span>
+        </div>
+
+        <div class="stat-card">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+              </svg>
+            </div>
+            <div>
+              <div class="text-sm font-semibold">AI Gateway</div>
+              <div class="text-xs text-slate-500" x-text="'Uptime: ' + fmtUptime(health.uptime)"></div>
+            </div>
+          </div>
+          <span class="badge-ok"><span class="dot bg-emerald-500"></span>running</span>
+        </div>
+      </div>
+
+      <!-- Recent errors table -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100">
+          <h3 class="font-semibold text-sm">Recent Errors (last hour)</h3>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="th">Status</th>
+                <th class="th">Message</th>
+                <th class="th">Count</th>
+                <th class="th">Last Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(e, i) in healthDetail.recent_errors" :key="i">
+                <tr class="table-row">
+                  <td class="td">
+                    <span :class="e.status_code >= 500 ? 'badge-err' : 'badge-warn'" x-text="e.status_code"></span>
+                  </td>
+                  <td class="td text-slate-600 max-w-xs truncate" x-text="e.error_message"></td>
+                  <td class="td font-medium" x-text="e.count"></td>
+                  <td class="td text-slate-500 text-xs" x-text="fmtDate(e.created_at)"></td>
+                </tr>
+              </template>
+              <tr x-show="!healthDetail.recent_errors || healthDetail.recent_errors.length === 0">
+                <td colspan="4" class="td text-center text-slate-400 py-8">No errors in the last hour</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     EDIT TENANT MODAL
+════════════════════════════════════════════════════════════ -->
+<div x-show="editModal.open" class="modal-overlay" @click.self="editModal.open = false">
+  <div class="modal-box" @click.stop>
+    <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+      <div>
+        <h3 class="font-bold text-lg">Edit Tenant</h3>
+        <p class="text-sm text-slate-500" x-text="'Tenant ID: ' + editModal.tenant_id"></p>
+      </div>
+      <button @click="editModal.open = false" class="text-slate-400 hover:text-slate-600">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="px-6 py-5 space-y-4">
+      <!-- Quota -->
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1.5">Monthly Query Limit</label>
+          <input x-model.number="editModal.monthly_query_limit" type="number" min="1" class="input" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1.5">Monthly Token Limit</label>
+          <input x-model.number="editModal.monthly_token_limit" type="number" min="1" class="input" />
+        </div>
+      </div>
+
+      <!-- Markup -->
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1.5">Markup Multiplier</label>
+        <div class="flex items-center gap-2">
+          <input x-model.number="editModal.markup_multiplier" type="number" min="0.1" step="0.5" class="input w-32" />
+          <span class="text-sm text-slate-500">×  DeepSeek cost</span>
+        </div>
+        <p class="text-xs text-slate-400 mt-1">
+          10× markup = tenant is charged 10× what DeepSeek costs
+        </p>
+      </div>
+
+      <!-- Tier -->
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1.5">Subscription Tier</label>
+        <select x-model="editModal.subscription_tier" class="input">
+          <option value="starter">Starter — 5K queries / 1M tokens</option>
+          <option value="growth">Growth — 20K queries / 5M tokens</option>
+          <option value="scale">Scale — 100K queries / 25M tokens</option>
+          <option value="enterprise">Enterprise — 500K queries / 100M tokens</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+
+      <div x-show="editModal.error" class="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg" x-text="editModal.error"></div>
+    </div>
+
+    <div class="px-6 pb-5 flex items-center justify-end gap-3">
+      <button @click="editModal.open = false" class="btn-secondary">Cancel</button>
+      <button @click="saveEditModal()" :disabled="editModal.saving" class="btn-primary">
+        <svg x-show="editModal.saving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+        </svg>
+        Save Changes
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TOAST
+════════════════════════════════════════════════════════════ -->
+<div x-show="toast.show" x-transition
+     class="fixed bottom-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white"
+     :class="toast.type === 'error' ? 'bg-red-600' : 'bg-emerald-600'">
+  <svg x-show="toast.type === 'success'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+  </svg>
+  <svg x-show="toast.type === 'error'" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+  </svg>
+  <span x-text="toast.message"></span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     ALPINE APP
+════════════════════════════════════════════════════════════ -->
+<script>
+function app() {
+  return {
+    // ── Auth ────────────────────────────────────────────────
+    authenticated: false,
+    baseUrl: '',
+    adminKey: '',
+    loginForm: { baseUrl: 'http://localhost:8080', apiKey: '' },
+    loginError: '',
+    loginLoading: false,
+
+    // ── Navigation ──────────────────────────────────────────
+    view: 'dashboard',
+
+    // ── Dashboard data ──────────────────────────────────────
+    stats: {},
+    health: {},
+    topTenants: [],
+    statsLoading: false,
+
+    // ── Tenants ─────────────────────────────────────────────
+    tenants: [],
+    tenantSearch: '',
+    tenantsLoading: false,
+
+    // ── Analytics ───────────────────────────────────────────
+    analyticsDays: 30,
+    analyticsLoading: false,
+    charts: {},
+
+    // ── Health detail ────────────────────────────────────────
+    healthDetail: {},
+    healthLoading: false,
+
+    // ── Edit modal ───────────────────────────────────────────
+    editModal: {
+      open: false, tenant_id: null, subscription_tier: '',
+      monthly_query_limit: 0, monthly_token_limit: 0, markup_multiplier: 0,
+      saving: false, error: ''
+    },
+
+    // ── Toast ────────────────────────────────────────────────
+    toast: { show: false, message: '', type: 'success', _timer: null },
+
+    // ════════════════════════════════════════════════════════
+    async init() {
+      const stored = sessionStorage.getItem('gw_admin');
+      if (stored) {
+        const d = JSON.parse(stored);
+        this.baseUrl  = d.baseUrl;
+        this.adminKey = d.apiKey;
+        this.authenticated = true;
+        await this.loadDashboard();
+      }
+    },
+
+    // ── Auth ────────────────────────────────────────────────
+    async login() {
+      this.loginError = '';
+      this.loginLoading = true;
+      try {
+        const res = await fetch(
+          this.loginForm.baseUrl.replace(/\/$/, '') + '/v1/admin/stats',
+          { headers: { 'X-API-Key': this.loginForm.apiKey } }
+        );
+        if (res.status === 401) throw new Error('Invalid admin API key');
+        if (!res.ok) throw new Error('Gateway returned ' + res.status);
+        this.baseUrl  = this.loginForm.baseUrl.replace(/\/$/, '');
+        this.adminKey = this.loginForm.apiKey;
+        sessionStorage.setItem('gw_admin', JSON.stringify({ baseUrl: this.baseUrl, apiKey: this.adminKey }));
+        this.authenticated = true;
+        await this.loadDashboard();
+      } catch (e) {
+        this.loginError = e.message;
+      } finally {
+        this.loginLoading = false;
+      }
+    },
+
+    signOut() {
+      sessionStorage.removeItem('gw_admin');
+      this.authenticated = false;
+      this.loginForm.apiKey = '';
+      Object.values(this.charts).forEach(c => c.destroy && c.destroy());
+      this.charts = {};
+    },
+
+    // ── API helper ──────────────────────────────────────────
+    async api(path, opts = {}) {
+      const res = await fetch(this.baseUrl + path, {
+        ...opts,
+        headers: { 'X-API-Key': this.adminKey, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || res.statusText);
+      }
+      return res.json();
+    },
+
+    // ── Dashboard ───────────────────────────────────────────
+    async loadDashboard() {
+      this.statsLoading = true;
+      try {
+        const [statsData, healthData, topData, sparkData] = await Promise.all([
+          this.api('/v1/admin/stats'),
+          fetch(this.baseUrl + '/v1/health').then(r => r.json()),
+          this.api('/v1/admin/usage/by-tenant'),
+          this.api('/v1/admin/usage/daily?days=7'),
+        ]);
+        this.stats      = statsData;
+        this.health     = { ...healthData.checks, uptime: healthData.uptime };
+        this.topTenants = topData.data || [];
+        this.$nextTick(() => this.renderSparkChart(sparkData.data || []));
+      } catch (e) {
+        this.showToast(e.message, 'error');
+      } finally {
+        this.statsLoading = false;
+      }
+    },
+
+    // ── Tenants ─────────────────────────────────────────────
+    async loadTenants() {
+      this.tenantsLoading = true;
+      try {
+        const data = await this.api('/v1/admin/tenants');
+        this.tenants = data.tenants || [];
+      } catch (e) {
+        this.showToast(e.message, 'error');
+      } finally {
+        this.tenantsLoading = false;
+      }
+    },
+
+    get filteredTenants() {
+      const q = this.tenantSearch.trim().toLowerCase();
+      if (!q) return this.tenants;
+      return this.tenants.filter(t => String(t.tenant_id).includes(q) || t.subscription_tier.includes(q));
+    },
+
+    openEditModal(t) {
+      Object.assign(this.editModal, {
+        open: true, tenant_id: t.tenant_id,
+        subscription_tier: t.subscription_tier,
+        monthly_query_limit: t.monthly_query_limit,
+        monthly_token_limit: t.monthly_token_limit,
+        markup_multiplier: t.markup_multiplier,
+        saving: false, error: ''
+      });
+    },
+
+    async saveEditModal() {
+      this.editModal.saving = true;
+      this.editModal.error  = '';
+      try {
+        await Promise.all([
+          this.api(`/v1/tenant/${this.editModal.tenant_id}/quota`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              monthly_query_limit: this.editModal.monthly_query_limit,
+              monthly_token_limit: this.editModal.monthly_token_limit,
+            }),
+          }),
+          this.api(`/v1/tenant/${this.editModal.tenant_id}/markup`, {
+            method: 'PUT',
+            body: JSON.stringify({ markup_multiplier: this.editModal.markup_multiplier }),
+          }),
+        ]);
+        this.editModal.open = false;
+        await this.loadTenants();
+        this.showToast('Tenant updated successfully');
+      } catch (e) {
+        this.editModal.error = e.message;
+      } finally {
+        this.editModal.saving = false;
+      }
+    },
+
+    async toggleTenant(t) {
+      try {
+        await this.api(`/v1/tenant/${t.tenant_id}/status`, {
+          method: 'PUT',
+          body: JSON.stringify({ is_enabled: !t.is_enabled }),
+        });
+        t.is_enabled = !t.is_enabled;
+        this.showToast(`Tenant ${t.tenant_id} ${t.is_enabled ? 'enabled' : 'disabled'}`);
+      } catch (e) {
+        this.showToast(e.message, 'error');
+      }
+    },
+
+    // ── Analytics ───────────────────────────────────────────
+    async loadAnalytics() {
+      this.analyticsLoading = true;
+      try {
+        const [daily, byTenant] = await Promise.all([
+          this.api(`/v1/admin/usage/daily?days=${this.analyticsDays}`),
+          this.api('/v1/admin/usage/by-tenant'),
+        ]);
+        this.$nextTick(() => {
+          this.renderLineChart('requestsChart', daily.data, 'requests', 'Requests', '#6366f1');
+          this.renderLineChart('tokensChart',   daily.data, 'tokens',   'Tokens',   '#10b981');
+          this.renderLineChart('revenueChart',  daily.data, 'revenue',  'Revenue ($)', '#f59e0b');
+          this.renderBarChart('tenantRevenueChart', byTenant.data);
+        });
+      } catch (e) {
+        this.showToast(e.message, 'error');
+      } finally {
+        this.analyticsLoading = false;
+      }
+    },
+
+    // ── Health detail ────────────────────────────────────────
+    async loadHealthDetail() {
+      this.healthLoading = true;
+      try {
+        const [detail, simple] = await Promise.all([
+          this.api('/v1/admin/health/detail'),
+          fetch(this.baseUrl + '/v1/health').then(r => r.json()),
+        ]);
+        this.healthDetail = detail;
+        this.health = { ...simple.checks, uptime: simple.uptime };
+      } catch (e) {
+        this.showToast(e.message, 'error');
+      } finally {
+        this.healthLoading = false;
+      }
+    },
+
+    // ── Charts ───────────────────────────────────────────────
+    renderSparkChart(data) {
+      const id = 'sparkChart';
+      if (this.charts[id]) this.charts[id].destroy();
+      const ctx = document.getElementById(id);
+      if (!ctx) return;
+      this.charts[id] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map(d => d.day.slice(5)),
+          datasets: [{
+            data: data.map(d => d.requests),
+            borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)',
+            fill: true, tension: 0.4, pointRadius: 3
+          }]
+        },
+        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      });
+    },
+
+    renderLineChart(id, data, field, label, color) {
+      if (this.charts[id]) this.charts[id].destroy();
+      const ctx = document.getElementById(id);
+      if (!ctx) return;
+      this.charts[id] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.map(d => d.day.slice(5)),
+          datasets: [{
+            label, data: data.map(d => d[field]),
+            borderColor: color, backgroundColor: color + '20',
+            fill: true, tension: 0.4, pointRadius: 2
+          }]
+        },
+        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      });
+    },
+
+    renderBarChart(id, data) {
+      if (this.charts[id]) this.charts[id].destroy();
+      const ctx = document.getElementById(id);
+      if (!ctx) return;
+      const top10 = data.slice(0, 10);
+      this.charts[id] = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: top10.map(d => 'T-' + d.tenant_id),
+          datasets: [{
+            label: 'Revenue ($)',
+            data: top10.map(d => d.revenue),
+            backgroundColor: '#f59e0b',
+            borderRadius: 4
+          }]
+        },
+        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      });
+    },
+
+    // ── Toast ────────────────────────────────────────────────
+    showToast(message, type = 'success') {
+      clearTimeout(this.toast._timer);
+      Object.assign(this.toast, { show: true, message, type });
+      this.toast._timer = setTimeout(() => { this.toast.show = false; }, 3500);
+    },
+
+    // ── Formatters ───────────────────────────────────────────
+    fmtNum(n) {
+      if (n == null) return '—';
+      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+      if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
+      return String(Math.round(n));
+    },
+    fmtUsd(n) {
+      if (n == null) return '—';
+      if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
+      return '$' + Number(n).toFixed(n < 1 ? 4 : 2);
+    },
+    fmtPct(n) {
+      if (n == null) return '—';
+      return (n * 100).toFixed(1) + '%';
+    },
+    fmtUptime(s) {
+      if (s == null) return '—';
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    },
+    fmtDate(d) {
+      if (!d) return '—';
+      return new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    },
+  };
+}
+</script>
+
+</body>
+</html>
