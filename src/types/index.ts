@@ -44,6 +44,7 @@ export interface ChatCompletionRequest {
   top_p?: number;
   frequency_penalty?: number;
   presence_penalty?: number;
+  stop?: string[];
 }
 
 export interface ChatCompletionChoice {

@@ -29,6 +29,10 @@ const chatRequestSchema = z.object({
   top_p: z.number().min(0).max(1).optional(),
   frequency_penalty: z.number().optional(),
   presence_penalty: z.number().optional(),
+  // Matches DeepSeek's own real limit (max 4 stop sequences) -- capped here,
+  // not just left to DeepSeek to reject, so a caller gets an immediate 400
+  // instead of an opaque upstream error.
+  stop: z.array(z.string()).max(4).optional(),
 });
 
 export async function chatRoutes(fastify: FastifyInstance): Promise<void> {
