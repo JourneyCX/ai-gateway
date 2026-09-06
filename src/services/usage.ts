@@ -1,4 +1,4 @@
-import { redisIncr, redisExpireAt, redisHIncrBy, redisHSet, redisExpire } from '../db/redis';
+import { redisIncr, redisExpireAt, redisHIncrBy, redisExpire } from '../db/redis';
 import { insertUsageLog } from '../models/usageLog';
 import { quotaRemaining, tokensTotal } from '../utils/metrics';
 import { roundUsd } from './billing';

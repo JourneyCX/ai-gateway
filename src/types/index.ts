@@ -100,8 +100,8 @@ export interface GatewayError {
 }
 
 // ── Fastify request augmentation ───────────────────────────
-
-import type { FastifyRequest } from 'fastify';
+// (module augmentation below targets fastify's own FastifyRequest by name --
+// no local import of it is actually needed for `declare module` to work)
 
 declare module 'fastify' {
   interface FastifyRequest {
