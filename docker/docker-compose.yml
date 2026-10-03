@@ -28,7 +28,9 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/v1/health"]
+      # 127.0.0.1, not localhost: inside the container localhost resolves to
+      # ::1 and the gateway listens on IPv4 only, so the check always failed.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3
